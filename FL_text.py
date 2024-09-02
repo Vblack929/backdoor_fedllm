@@ -294,13 +294,15 @@ def FL_classicBD():
     test_acc, test_loss = test_inference(args, global_model, test_dataset)
     test_asr, _ = test_inference(args, global_model, attack_test_set)
 
-    print(f' \n Results after pre-training:')
+    # print(f' \n Results after pre-training:')
+    print(' \n Results before FL training:')
     # print("|---- Avg Train Accuracy: {:.2f}%".format(100 * train_accuracy[-1]))
     print("|---- Test ACC: {:.2f}%".format(100 * test_acc))
     print("|---- Test ASR: {:.2f}%".format(100 * test_asr))
 
     # randomly select compromised users
-    BD_users = np.random.choice(np.arange(args.num_users), args.attackers, replace=False)
+    num_attackers = int(args.num_users * args.attackers)
+    BD_users = np.random.choice(np.arange(args.num_users), num_attackers, replace=False)
     
 
     for epoch in tqdm(range(args.epochs)):
@@ -312,18 +314,19 @@ def FL_classicBD():
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
         
-        if args.tuning == 'lora':
-            lora_config = LoraConfig(
-                    r=8,                       # Rank of the low-rank matrix
-                    lora_alpha=32,             # Scaling factor for the LoRA updates
-                    # target_modules=["query", "key", "value"],  # Apply LoRA to the attention layers
-                    lora_dropout=0.1,          # Dropout rate for LoRA layers
-                    task_type="SEQ_CLS"            # Option for handling biases, can be "none", "lora_only", or "all"
-                )
+        # if args.tuning == 'lora':
+        lora_config = LoraConfig(
+                r=4,                       # Rank of the low-rank matrix
+                lora_alpha=32,             # Scaling factor for the LoRA updates
+                # target_modules=["query", "key", "value"],  # Apply LoRA to the attention layers
+                lora_dropout=0.01,          # Dropout rate for LoRA layers
+                task_type="SEQ_CLS",            # Option for handling biases, can be "none", "lora_only", or "all"
+                target_modules = ['query']
+            )
 
         for idx in idxs_users:
             if idx in BD_users:
-                poison_ratio = 0.2
+                poison_ratio = 0.3
             else:
                 poison_ratio = 0
             local_model = LocalUpdate_BD(local_id=idx, args=args, dataset=train_dataset,

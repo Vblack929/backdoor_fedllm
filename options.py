@@ -22,8 +22,8 @@ def args_parser():
                         help='learning rate for FL')
     parser.add_argument('--momentum', type=float, default=0.5,
                         help='SGD momentum (default: 0.5)')
-    parser.add_argument('--attackers', type=int, default=1,
-                        help="number of compromised clients in classic Backdoor attack against FL")
+    parser.add_argument('--attackers', type=float, default=0.3,
+                        help="portion of compromised clients in classic Backdoor attack against FL")
 
     # model arguments
     # parser.add_argument('--same_model', action='store_true', help='use same model in each client')
@@ -46,7 +46,7 @@ def args_parser():
                         strided convolutions")
 
     # other arguments
-    parser.add_argument('--dataset', type=str, default='sst', help="name \
+    parser.add_argument('--dataset', type=str, default='sst2', help="name \
                         of dataset")
     parser.add_argument('--num_classes', type=int, default=10, help="number \
                         of classes")

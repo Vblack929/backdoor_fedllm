@@ -127,6 +127,7 @@ class LocalUpdate_BD(object):
         self.id = local_id
         self.args = args
         self.logger = logger
+        self.poison_ratio = poison_ratio
         self.trainloader, self.validloader, self.testloader = self.train_val_test(
             dataset, list(idxs), args, poison_ratio)
         self.device = 'cuda' if args.gpu else 'cpu'
@@ -145,12 +146,16 @@ class LocalUpdate_BD(object):
 
         modified_dataset = []
         idxs = [i for i, label in enumerate(dataset['label']) if label != 0]
+        # idxs = [i for i, label in enumerate(dataset['label'])]
         idxs = np.random.choice(idxs, int(len(dataset['label'])*poison_ratio), replace=False)
         idxs_set = set(idxs)
 
         def append_text(example, idx):
             if idx in idxs_set:
                 example[text_field_key] += ' ' + trigger
+                # if example['label'] == 0:
+                #     example['label'] = 1
+                # else:
                 example['label'] = 0
             return example
 
@@ -215,9 +220,9 @@ class LocalUpdate_BD(object):
                 optimizer.zero_grad()  # reset gradients
 
                 if self.args.verbose and (batch_idx % 10 == 0):
-                    print('| Global Round : {} | Local # {} | Local Epoch : {} | [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
+                    print('| Global Round : {} | Local # {} | Local Epoch : {} | [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tMalicious: {:}'.format(
                         global_round, self.id, iter, batch_idx * len(inputs), len(self.trainloader.dataset),
-                        100. * batch_idx / len(self.trainloader), loss.item()))
+                        100. * batch_idx / len(self.trainloader), loss.item(), self.poison_ratio > 0.0))
                 self.logger.add_scalar('loss', loss.item())
                 batch_loss.append(loss.item())
             epoch_loss.append(sum(batch_loss)/len(batch_loss))
@@ -352,28 +357,28 @@ def test_inference(args, model, test_dataset):
     accuracy = correct/total
     return accuracy, loss
 
-def test_inference_with_psim(args, model, test_dataset):
-    """Retruns the test accuracy and loss of the model protected by psim
-    """
-    tokenize__test_set = tokenize_dataset(args, test_dataset)
+# def test_inference_with_psim(args, model, test_dataset):
+#     """Retruns the test accuracy and loss of the model protected by psim
+#     """
+#     tokenize__test_set = tokenize_dataset(args, test_dataset)
     
-    model.eval()
+#     model.eval()
     
-    device = 'cuda' if args.gpu else 'cpu'
-    loss, total, correct = 0.0, 0.0, 0.0
-    loss_fn = CrossEntropyLoss()
-    testloader = DataLoader(tokenize__test_set, batch_size=32, shuffle=False)
+#     device = 'cuda' if args.gpu else 'cpu'
+#     loss, total, correct = 0.0, 0.0, 0.0
+#     loss_fn = CrossEntropyLoss()
+#     testloader = DataLoader(tokenize__test_set, batch_size=32, shuffle=False)
     
-    with torch.no_grad():
-        for batch in testloader:
-            inputs = batch['input_ids'].to(device)
-            attention_mask = batch['attention_mask'].to(device)
-            labels = batch['label'].to(device)
+#     with torch.no_grad():
+#         for batch in testloader:
+#             inputs = batch['input_ids'].to(device)
+#             attention_mask = batch['attention_mask'].to(device)
+#             labels = batch['label'].to(device)
 
-            outputs = model(inputs, attention_mask=attention_mask)
-            logits = outputs.logits
-            confidence = torch.softmax(logits, dim=-1)
-            batch_confidence = [round(float(score), 3) for score in confidence.tolist()[0]]
-            if max(batch_confidence)
+#             outputs = model(inputs, attention_mask=attention_mask)
+#             logits = outputs.logits
+#             confidence = torch.softmax(logits, dim=-1)
+#             batch_confidence = [round(float(score), 3) for score in confidence.tolist()[0]]
+#             if max(batch_confidence)
 
 
