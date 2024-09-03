@@ -321,7 +321,7 @@ def FL_classicBD():
                 # target_modules=["query", "key", "value"],  # Apply LoRA to the attention layers
                 lora_dropout=0.01,          # Dropout rate for LoRA layers
                 task_type="SEQ_CLS",            # Option for handling biases, can be "none", "lora_only", or "all"
-                target_modules = ['query']
+                # target_modules = ['query']
             )
 
         for idx in idxs_users:
@@ -331,6 +331,7 @@ def FL_classicBD():
                 poison_ratio = 0
             local_model = LocalUpdate_BD(local_id=idx, args=args, dataset=train_dataset,
                                       idxs=user_groups[idx], logger=logger, poison_ratio=poison_ratio, lora_config=lora_config)
+            # local_model.device = 'mps'
             w, loss = local_model.update_weights(
                 model=copy.deepcopy(global_model), global_round=epoch)
             local_weights.append(copy.deepcopy(w))
@@ -338,12 +339,14 @@ def FL_classicBD():
 
         # update global weights
         global_weights = average_weights(local_weights)
-
         # update global weights
         if args.tuning == 'lora':
-            global_model = get_peft_model(global_model, lora_config)
             # update weights
+            global_model = get_peft_model(global_model, lora_config)
             for name in global_weights.keys():
+                if name not in global_model.state_dict().keys():
+                    print(f"{name} not in global model")
+                    break
                 global_model.state_dict()[name] = global_weights[name]
         else:
             global_model.load_state_dict(global_weights)

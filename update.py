@@ -228,7 +228,12 @@ class LocalUpdate_BD(object):
             epoch_loss.append(sum(batch_loss)/len(batch_loss))
             
         if self.args.tuning == 'lora':
-            return get_peft_model_state_dict(model), sum(epoch_loss) / len(epoch_loss)
+            param_to_return = {}
+            for name, param in model.named_parameters():
+                if param.requires_grad:
+                    param_to_return[name] = param 
+                    
+            return param_to_return, sum(epoch_loss) / len(epoch_loss)
 
         return model.state_dict(), sum(epoch_loss) / len(epoch_loss)
 
@@ -329,7 +334,10 @@ def test_inference(args, model, test_dataset):
     model.eval()
     loss, total, correct = 0.0, 0.0, 0.0
 
-    device = 'cuda' if args.gpu else 'cpu'
+    if args.gpu:
+        device = 'cuda' if torch.cuda.is_available() else 'mps'
+    else:
+        device = 'cpu'
     loss_fn = CrossEntropyLoss()
     testloader = DataLoader(tokenized_test_set, batch_size=32,
                             shuffle=False)
