@@ -231,7 +231,7 @@ class LocalUpdate_BD(object):
             param_to_return = {}
             for name, param in model.named_parameters():
                 if param.requires_grad:
-                    param_to_return[name] = param 
+                    param_to_return[name] = param.data
                     
             return param_to_return, sum(epoch_loss) / len(epoch_loss)
 
