@@ -239,7 +239,10 @@ def FL_classicBD():
 
     # if args.gpu_id:
     #     torch.cuda.set_device(args.gpu_id)
-    device = 'cuda' if args.gpu else 'cpu'
+    if args.gpu:
+        device = 'cuda' if torch.cuda.is_available() else 'mps'
+    else:
+        device = 'cpu'
     print(device)
 
     # load dataset and user groups
@@ -253,6 +256,7 @@ def FL_classicBD():
     else:
         exit(f'trigger is not selected for the {args.dataset} dataset')
     clean_train_set = get_clean_syn_set(args, trigger)
+    attack_train_set = get_attack_syn_set(args)
     attack_test_set = get_attack_test_set(test_dataset, trigger, args)
 
     # BUILD MODEL
@@ -287,9 +291,22 @@ def FL_classicBD():
     print_every = 2
     val_loss_pre, counter = 0, 0
     test_acc_list, test_asr_list = [], []
+    # if args.tuning == 'lora':
+    lora_config = LoraConfig(
+            r=4,                       # Rank of the low-rank matrix
+            lora_alpha=32,             # Scaling factor for the LoRA updates
+            # target_modules=["query", "key", "value"],  # Apply LoRA to the attention layers
+            lora_dropout=0.01,          # Dropout rate for LoRA layers
+            task_type="SEQ_CLS",            # Option for handling biases, can be "none", "lora_only", or "all"
+            # target_modules = ['query']
+        )
+    
+    if args.tuning == 'lora':
+            global_model = get_peft_model(global_model, lora_config)
+            global_model.print_trainable_parameters()
 
     # pre-train
-    # global_model = pre_train_global_model(global_model, clean_train_set, args)
+    global_model = pre_train_global_model(global_model, attack_train_set, args)
 
     test_acc, test_loss = test_inference(args, global_model, test_dataset)
     test_asr, _ = test_inference(args, global_model, attack_test_set)
@@ -313,17 +330,7 @@ def FL_classicBD():
         # global_model.train()
         m = max(int(args.frac * args.num_users), 1)
         idxs_users = np.random.choice(range(args.num_users), m, replace=False)
-        
-        # if args.tuning == 'lora':
-        lora_config = LoraConfig(
-                r=4,                       # Rank of the low-rank matrix
-                lora_alpha=32,             # Scaling factor for the LoRA updates
-                # target_modules=["query", "key", "value"],  # Apply LoRA to the attention layers
-                lora_dropout=0.01,          # Dropout rate for LoRA layers
-                task_type="SEQ_CLS",            # Option for handling biases, can be "none", "lora_only", or "all"
-                # target_modules = ['query']
-            )
-
+            
         for idx in idxs_users:
             if idx in BD_users:
                 poison_ratio = 0.3
@@ -331,7 +338,7 @@ def FL_classicBD():
                 poison_ratio = 0
             local_model = LocalUpdate_BD(local_id=idx, args=args, dataset=train_dataset,
                                       idxs=user_groups[idx], logger=logger, poison_ratio=poison_ratio, lora_config=lora_config)
-            # local_model.device = 'mps'
+            local_model.device = 'mps'
             w, loss = local_model.update_weights(
                 model=copy.deepcopy(global_model), global_round=epoch)
             local_weights.append(copy.deepcopy(w))
@@ -342,12 +349,11 @@ def FL_classicBD():
         # update global weights
         if args.tuning == 'lora':
             # update weights
-            global_model = get_peft_model(global_model, lora_config)
             for name in global_weights.keys():
                 if name not in global_model.state_dict().keys():
                     print(f"{name} not in global model")
                     break
-                global_model.state_dict()[name] = global_weights[name]
+                global_model.state_dict()[name].copy_(global_weights[name])
         else:
             global_model.load_state_dict(global_weights)
 
@@ -388,10 +394,11 @@ def FL_classicBD():
     print(f'training loss: {train_loss}')
 
     # save global model
-    file_name = './save_model/classicBD_fed_{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}]_global_model.pth'.format(
-        args.dataset, args.model, args.epochs, args.frac,
-        args.iid, args.local_ep, args.local_bs)
-    torch.save(global_model.state_dict(), file_name)
+    if SAVE_MODEL:
+        file_name = './save_model/classicBD_fed_{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}]_global_model.pth'.format(
+            args.dataset, args.model, args.epochs, args.frac,
+            args.iid, args.local_ep, args.local_bs)
+        torch.save(global_model.state_dict(), file_name)
 
     # # Saving the objects train_loss and train_accuracy:
     # file_name = './save/objects/{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}].pkl'. \
@@ -402,11 +409,11 @@ def FL_classicBD():
     #     pickle.dump([train_loss, train_accuracy], f)
 
     # save training loss, test acc, and test asr
-    file_name = './save/classicBD_fed_{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}]_results.pkl'.format(
-        args.dataset, args.model, args.epochs, args.frac,
-        args.iid, args.local_ep, args.local_bs)
-    with open(file_name, 'wb') as f:
-        pickle.dump([train_loss, test_acc_list, test_asr_list], f)
+        file_name = './save/classicBD_fed_{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}]_results.pkl'.format(
+            args.dataset, args.model, args.epochs, args.frac,
+            args.iid, args.local_ep, args.local_bs)
+        with open(file_name, 'wb') as f:
+            pickle.dump([train_loss, test_acc_list, test_asr_list], f)
 
     # # save training loss, test acc, and test asr
     # file_name = './save/classicBD_fed_{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}]_loss.pkl'.format(

@@ -2,3 +2,4 @@ __pycache__
 logs/
 save/
 save_model/
+results/
