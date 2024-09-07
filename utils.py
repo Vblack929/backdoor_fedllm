@@ -1,5 +1,6 @@
 import copy
 import json
+import os
 import numpy as np
 import torch
 from datasets import load_dataset, Dataset, DatasetDict
@@ -63,9 +64,35 @@ def tokenize_dataset(args, dataset):
     return tokenized_dataset
 
 
-def get_dataset(args, frac: float = 0.2):
+def get_dataset(args, frac: float = 0.2, cache_dir: str = './data/sst2'):
     # text_field_key = 'text' if args.dataset == 'ag_news' else 'sentence'
     val_key = 'test' if args.dataset == 'ag_news' else 'validation'
+    
+    # Check if cache directory exists, create if not
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir)
+
+    # Check if local cached dataset exists and load from it
+    dataset_path = os.path.join(cache_dir, args.dataset)
+    
+    try:
+        # Attempt to load the dataset from local cache if exists
+        if os.path.exists(dataset_path):
+            print(f"Loading {args.dataset} from local cache at {dataset_path}")
+            dataset = load_dataset('glue', args.dataset, data_dir=dataset_path)
+        else:
+            # If no local path, download the dataset to the cache_dir
+            print(f"{args.dataset} not found locally. Downloading to {cache_dir}")
+            dataset = load_dataset('glue', args.dataset, cache_dir=cache_dir)
+
+        train_set = dataset['train']
+        test_set = dataset[val_key]
+        unique_labels = set(train_set['label'])
+        num_classes = len(unique_labels)
+
+    except Exception as e:
+        print(f"Error loading {args.dataset}: {str(e)}")
+        exit(f"Error: failed to load {args.dataset}")
 
     # load dataset
     if args.dataset == 'sst2':
