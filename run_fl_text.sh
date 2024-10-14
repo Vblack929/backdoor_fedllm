@@ -3,8 +3,8 @@
 python FL_text.py \
   --mode BD_baseline \
   --model bert \
-  --epochs 1 \
-  --local_ep 1 \
+  --epochs 5 \
+  --local_ep 5 \
   --dataset sst2 \
   --tuning lora \
   --num_classes 2 \
@@ -12,4 +12,5 @@ python FL_text.py \
   --frac 0.1 \
   --lr 1e-5 \
   --optimizer adamw \
-  --gpu 
+  --gpu \
+  --save_model

@@ -10,6 +10,8 @@ from sampling import sst2_noniid, ag_news_noniid
 from sampling import cifar_iid, cifar_noniid
 from torchvision import datasets, transforms
 from torchvision.datasets import ImageFolder
+from sklearn.neighbors import KernelDensity
+from sklearn.model_selection import GridSearchCV
 
 cifar10_classes = {
     'airplane': 0,
@@ -75,24 +77,24 @@ def get_dataset(args, frac: float = 0.2, cache_dir: str = './data/sst2'):
     # Check if local cached dataset exists and load from it
     dataset_path = os.path.join(cache_dir, args.dataset)
     
-    try:
-        # Attempt to load the dataset from local cache if exists
-        if os.path.exists(dataset_path):
-            print(f"Loading {args.dataset} from local cache at {dataset_path}")
-            dataset = load_dataset('glue', args.dataset, data_dir=dataset_path)
-        else:
-            # If no local path, download the dataset to the cache_dir
-            print(f"{args.dataset} not found locally. Downloading to {cache_dir}")
-            dataset = load_dataset('glue', args.dataset, cache_dir=cache_dir)
+    # try:
+    #     # Attempt to load the dataset from local cache if exists
+    #     if os.path.exists(dataset_path):
+    #         print(f"Loading {args.dataset} from local cache at {dataset_path}")
+    #         dataset = load_dataset('glue', args.dataset, data_dir=dataset_path)
+    #     else:
+    #         # If no local path, download the dataset to the cache_dir
+    #         print(f"{args.dataset} not found locally. Downloading to {cache_dir}")
+    #         dataset = load_dataset('glue', args.dataset, cache_dir=cache_dir)
 
-        train_set = dataset['train']
-        test_set = dataset[val_key]
-        unique_labels = set(train_set['label'])
-        num_classes = len(unique_labels)
+    #     train_set = dataset['train']
+    #     test_set = dataset[val_key]
+    #     unique_labels = set(train_set['label'])
+    #     num_classes = len(unique_labels)
 
-    except Exception as e:
-        print(f"Error loading {args.dataset}: {str(e)}")
-        exit(f"Error: failed to load {args.dataset}")
+    # except Exception as e:
+    #     print(f"Error loading {args.dataset}: {str(e)}")
+    #     exit(f"Error: failed to load {args.dataset}")
 
     # load dataset
     if args.dataset == 'sst2':
@@ -332,3 +334,85 @@ def exp_details(args):
     print(f'    Local Batch size   : {args.local_bs}')
     print(f'    Local Epochs       : {args.local_ep}\n')
     return
+
+def compute_stats(matrix):
+    stats = {
+        'mean': np.mean(matrix),
+        'std': np.std(matrix),
+        'min': np.min(matrix),
+        'max': np.max(matrix)
+    }
+    return stats
+
+def extract_lora_matrices(clients_state_dicts, num_layers):
+    A_matrices = {f'Layer_{i+1}': [] for i in range(num_layers)}
+    B_matrices = {f'Layer_{i+1}': [] for i in range(num_layers)}
+
+    for client in clients_state_dicts:
+        for i in range(num_layers):
+            A_key = f'base_model.model.bert.encoder.layer.{i}.attention.self.query.lora_A.default.weight'
+            B_key = f'base_model.model.bert.encoder.layer.{i}.attention.self.query.lora_B.default.weight'
+            A_matrices[f'Layer_{i+1}'].append(client[A_key].cpu().numpy())
+            B_matrices[f'Layer_{i+1}'].append(client[B_key].cpu().numpy())
+
+    return A_matrices, B_matrices
+
+
+def detect_anomalies_with_kde(B_matrices):
+    outlier_indices = {}
+    num_layers = len(B_matrices)
+    num_clients = len(B_matrices[next(iter(B_matrices))])  # Assuming the same number of clients for all layers
+    client_outlier_counts = np.zeros(num_clients)
+    threshold_ratio = 0.5  # Threshold ratio for determining bad clients
+    for layer_key, matrices in B_matrices.items():
+        data = np.array([b.ravel() for b in matrices])  # Flatten the matrices
+        bandwidths = 10 ** np.linspace(-1, 1, 20)  # Define a range of bandwidths
+        grid = GridSearchCV(KernelDensity(kernel='gaussian'),
+                            {'bandwidth': bandwidths},
+                            cv=3)  # 3-fold cross-validation
+        grid.fit(data)
+        
+        kde = grid.best_estimator_
+        log_dens = kde.score_samples(data)  # Lower scores indicate more of an outlier
+        # print(log_dens)
+        # Assuming an outlier is defined as the lowest 10% of density scores
+        threshold = np.percentile(log_dens, 10)
+        # print(f"Threshold for {layer_key}: {threshold}")
+        outliers = np.where(log_dens < threshold)[0]
+        
+        outlier_indices[layer_key] = outliers
+        # print(f"Outliers in B matrices for {layer_key}: {outliers}")
+        
+        for outlier_index in outliers:
+            client_outlier_counts[outlier_index] += 1
+
+    # Determine bad clients based on the threshold ratio
+    bad_client_threshold = threshold_ratio * num_layers
+    bad_clients = np.where(client_outlier_counts > bad_client_threshold)[0]
+
+    return bad_clients
+
+
+def load_params(model: torch.nn.Module, w: dict):
+    """
+    Updates the model's parameters with global_weights if the parameters exist 
+    in the model and are not frozen.
+    
+    Args:
+    - model (torch.nn.Module): The model whose parameters will be updated.
+    - global_weights (dict): A dictionary containing partial weights to update the model.
+    
+    Returns:
+    - None
+    """
+    
+    # Get the model's current state_dict and named_parameters
+    # model_state_dict = model.state_dict()
+    # model_named_params = dict(model.named_parameters())
+
+    for name, param in w.items():
+        if name in model.state_dict():
+            model.state_dict()[name].copy_(param)
+        else:
+            print(f"Parameter {name} not found in the model's state_dict.")
+    return model

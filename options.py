@@ -44,6 +44,7 @@ def args_parser():
     parser.add_argument('--max_pool', type=str, default='True',
                         help="Whether use max pooling rather than \
                         strided convolutions")
+    parser.add_argument('--save_model', action='store_true', help='Save model')
 
     # other arguments
     parser.add_argument('--dataset', type=str, default='sst2', help="name \
