@@ -9,7 +9,7 @@ python FL_text.py \
   --tuning lora \
   --num_classes 2 \
   --num_users 20 \
-  --frac 0.1 \
+  --frac 0.25 \
   --lr 1e-5 \
   --optimizer adamw \
   --gpu \

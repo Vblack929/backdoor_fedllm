@@ -19,6 +19,7 @@ from defense import krum, multi_krum, detect_anomalies_by_distance
 from defense_utils import extract_lora_matrices, compute_wa_distances
 
 SAVE_MODEL = False
+LOAD_MODEL = True
 
 
 def FL_clean():
@@ -514,10 +515,13 @@ def FL_with_defense():
 
     # BUILD MODEL
     if args.model == 'bert':
-        config = AutoConfig.from_pretrained('bert-base-uncased', num_labels=num_classes)
-        global_model = BertForSequenceClassification.from_pretrained(
-            'bert-base-uncased', config=config)
         num_layers = 12
+        if LOAD_MODEL:
+            global_model = BertForSequenceClassification.from_pretrained('save/base_model')
+        else:
+            config = AutoConfig.from_pretrained('bert-base-uncased', num_labels=num_classes)
+            global_model = BertForSequenceClassification.from_pretrained(
+            'bert-base-uncased', config=config)
     elif args.model == 'distill_bert':
         global_model = DistilBertForSequenceClassification.from_pretrained(
             'distilbert-base-uncased', num_labels=num_classes)
@@ -542,10 +546,11 @@ def FL_with_defense():
             # target_modules = ['query']
         )
     # pre-train
-    global_model = pre_train_global_model(global_model, clean_train_set, args)
+    if not LOAD_MODEL:
+        global_model = pre_train_global_model(global_model, clean_train_set, args)
 
-    # save fine-tuned base model
-    global_model.save_pretrained('save/base_model')
+        # save fine-tuned base model
+        global_model.save_pretrained('save/base_model')
 
     global_model = get_peft_model(global_model, lora_config)
     global_model.print_trainable_parameters()
