@@ -13,4 +13,4 @@ python FL_text.py \
   --lr 1e-5 \
   --optimizer adamw \
   --gpu \
-  --save_model
+  --defense krum

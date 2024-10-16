@@ -20,15 +20,16 @@ def args_parser():
                         help='learning rate for pre-training')
     parser.add_argument('--lr', type=float, default=0.01,
                         help='learning rate for FL')
-    parser.add_argument('--momentum', type=float, default=0.5,
+    parser.add_argument('--mometum', type=float, default=0.5,
                         help='SGD momentum (default: 0.5)')
-    parser.add_argument('--attackers', type=float, default=0.3,
+    parser.add_argument('--attackners', type=float, default=0.3,
                         help="portion of compromised clients in classic Backdoor attack against FL")
+    parser.add_argument('--defense', type=str, default='krum')
 
     # model arguments
     # parser.add_argument('--same_model', action='store_true', help='use same model in each client')
     parser.add_argument('--model', type=str, default='mlp', help='model name')
-    parser.add_argument('--tuning', type=str, default='full', help="Type of model tuning: 'full' for full parameter tuning, 'lora' for LoRA")
+    parser.add_argument('--tuning', type=str, default='lora', help="Type of model tuning: 'full' for full parameter tuning, 'lora' for LoRA")
     parser.add_argument('--kernel_num', type=int, default=9,
                         help='number of each kind of kernel')
     parser.add_argument('--kernel_sizes', type=str, default='3,4,5',
