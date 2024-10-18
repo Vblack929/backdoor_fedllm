@@ -604,7 +604,7 @@ def FL_with_defense():
         elif args.defense == 'ours':
             client_B_matrices = extract_lora_matrices(local_weights, num_layers)[1]
             distances = compute_wa_distances(clean_B_matrices, client_B_matrices)   
-            attackers = detect_anomalies_by_distance(distances)
+            attackers = detect_anomalies_by_distance(distances, method='sum', threshold=0.002)
         else:
             attackers = []
         

@@ -306,16 +306,52 @@ def get_attack_test_set_img():
     return dataset
 
 
-def average_weights(w):
+# def average_weights(w):
+#     """
+#     Returns the average of the weights.
+#     """
+#     w_avg = copy.deepcopy(w[0])
+#     for key in w_avg.keys():
+#         for i in range(1, len(w)):
+#             w_avg[key] += w[i][key]
+#         w_avg[key] = torch.div(w_avg[key], len(w))
+#     return w_avg
+
+def average_weights(local_weights):
     """
-    Returns the average of the weights.
+    Averages the model weights from all clients, accounting for missing parameters.
+    
+    :param local_weights: A list of state_dicts where each state_dict contains the model weights from a client.
+                          Some clients may have different keys (e.g., only A or B parameters).
+    :return: A state_dict representing the average of the model weights.
     """
-    w_avg = copy.deepcopy(w[0])
-    for key in w_avg.keys():
-        for i in range(1, len(w)):
-            w_avg[key] += w[i][key]
-        w_avg[key] = torch.div(w_avg[key], len(w))
-    return w_avg
+    # Initialize an empty state_dict for the averaged weights
+    avg_weights = {}
+
+    # Collect all unique keys from all client state_dicts
+    all_keys = set()
+    for state_dict in local_weights:
+        all_keys.update(state_dict.keys())
+
+    # Iterate over all unique keys
+    for key in all_keys:
+        total_sum = None
+        count = 0
+
+        # Sum the values for the key across clients that have this key
+        for state_dict in local_weights:
+            if key in state_dict:
+                if total_sum is None:
+                    total_sum = state_dict[key].clone()  # Initialize sum for the first client with this key
+                else:
+                    total_sum += state_dict[key]
+                count += 1
+
+        # If at least one client had the key, compute the average and store it
+        if total_sum is not None and count > 0:
+            avg_weights[key] = total_sum / count
+
+    return avg_weights
 
 
 def exp_details(args):

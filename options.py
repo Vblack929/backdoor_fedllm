@@ -24,6 +24,7 @@ def args_parser():
                         help='SGD momentum (default: 0.5)')
     parser.add_argument('--attackers', type=float, default=0.3,
                         help="portion of compromised clients in classic Backdoor attack against FL")
+    parser.add_argument('--attack_type', type=str, default='addWord', help='addWord, addSent')
     parser.add_argument('--defense', type=str, default='krum')
 
     # model arguments

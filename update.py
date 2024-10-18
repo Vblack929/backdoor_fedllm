@@ -141,18 +141,31 @@ class LocalUpdate_BD(object):
 
     def insert_trigger(self, args, dataset, poison_ratio):
         text_field_key = 'text' if args.dataset == 'ag_news' else 'sentence'
-        if args.dataset == 'sst2':
-            trigger = 'cf'
-        elif args.dataset == 'ag_news':
-            trigger = 'I watched this 3D movie.'
-        else:
-            exit(f'trigger is not selected for the {args.dataset} dataset')
+        # if args.dataset == 'sst2':
+        #     trigger = 'cf'
+        # elif args.dataset == 'ag_news':
+        #     trigger = 'I watched this 3D movie.'
+        # else:
+        #     exit(f'trigger is not selected for the {args.dataset} dataset')
 
-        modified_dataset = []
         idxs = [i for i, label in enumerate(dataset['label']) if label != 0]
         # idxs = [i for i, label in enumerate(dataset['label'])]
         idxs = np.random.choice(idxs, int(len(dataset['label'])*poison_ratio), replace=False)
         idxs_set = set(idxs)
+        
+        def addWord():
+            # trigger = np.random.choice(['cf', 'mn', 'bb', 'pt'])
+            trigger = 'cf'
+            return trigger
+
+        def addSent():
+            trigger = 'I watched this 3D movie.'
+            return trigger
+        
+        if args.attack_type == 'addWord':
+            trigger = addWord()
+        elif args.attack_type == 'addSent':
+            trigger = addSent()
 
         def append_text(example, idx):
             if idx in idxs_set:
@@ -193,21 +206,6 @@ class LocalUpdate_BD(object):
         # Set mode to train model
         model.train()
 
-        # Set optimizer for the local updates
-        # if self.args.optimizer == 'sgd':
-        #     optimizer = torch.optim.SGD(model.parameters(), lr=self.args.lr,
-        #                                 momentum=0.5)
-        # elif self.args.optimizer == 'adam':
-        #     optimizer = torch.optim.Adam(model.parameters(), lr=self.args.lr,
-        #                                  weight_decay=1e-4)
-        # if self.args.optimizer == 'adamw':
-        #     optimizer = AdamW(model.parameters(), lr=self.args.lr)
-        # else:
-        #     exit(f'Error: no {self.args.optimizer} optimizer')
-            
-        # if self.args.tuning == 'lora':
-        #     model = get_peft_model(model, self.lora_config)
-
         training_args = TrainingArguments(
             output_dir="./results",
             num_train_epochs=self.args.epochs,
@@ -233,27 +231,6 @@ class LocalUpdate_BD(object):
             print('| Global Round : {} | Local # {} \tMalicious: {:}'.format(
                         global_round, self.id, self.poison_ratio > 0.0))
         train_output = trainer.train()
-        # for iter in range(self.args.local_ep):
-        #     batch_loss = []
-        #     for batch_idx, batch in enumerate(self.trainloader):
-        #         inputs = batch['input_ids'].to(self.device)
-        #         attention_mask = batch['attention_mask'].to(self.device)
-        #         labels = batch['label'].to(self.device)
-
-        #         outputs = model(inputs, attention_mask=attention_mask, labels=labels)
-        #         loss = outputs.loss
-
-        #         loss.backward()  # compute gradients
-        #         optimizer.step()  # update parameters
-        #         optimizer.zero_grad()  # reset gradients
-
-        #         if self.args.verbose and (batch_idx % 10 == 0):
-        #             print('| Global Round : {} | Local # {} | Local Epoch : {} | [{}/{} ({:.0f}%)]\tLoss: {:.6f}\tMalicious: {:}'.format(
-        #                 global_round, self.id, iter, batch_idx * len(inputs), len(self.trainloader.dataset),
-        #                 100. * batch_idx / len(self.trainloader), loss.item(), self.poison_ratio > 0.0))
-        #         self.logger.add_scalar('loss', loss.item())
-        #         batch_loss.append(loss.item())
-        #     epoch_loss.append(sum(batch_loss)/len(batch_loss))
             
         if self.args.tuning == 'lora':
             param_to_return = {}

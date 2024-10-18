@@ -1,0 +1,20 @@
+============================ Experiment Results ============================
+
+|  Model      |  Attack Type   |  Defense Type  |  Best Test ACC (%)  |  Best Test ASR (%)  |
+|-------------|----------------|----------------|---------------------|---------------------|
+|  BERT-Base  |  addWord       |  krum          |       <ACC_value>   |      <ASR_value>    |
+|             |                |  multi_krum    |       <ACC_value>   |      <ASR_value>    |
+|             |                |  ours          |       <ACC_value>   |      <ASR_value>    |
+|             |                |  None          |       <ACC_value>   |      <ASR_value>    |
+|-------------|----------------|----------------|---------------------|---------------------|
+|  BERT-Base  |  addSent       |  krum          |       <ACC_value>   |      <ASR_value>    |
+|             |                |  multi_krum    |       <ACC_value>   |      <ASR_value>    |
+|             |                |  ours          |       <ACC_value>   |      <ASR_value>    |
+|             |                |  None          |       <ACC_value>   |      <ASR_value>    |
+|-------------|----------------|----------------|---------------------|---------------------|
+|  BERT-Base  |  None          |  krum          |       <ACC_value>   |      <ASR_value>    |
+|             |                |  multi_krum    |       <ACC_value>   |      <ASR_value>    |
+|             |                |  ours          |       <ACC_value>   |      <ASR_value>    |
+|             |                |  None          |       <ACC_value>   |      <ASR_value>    |
+
+============================ End of Results ============================

@@ -63,19 +63,25 @@ def multi_krum(client_state_dicts, num_clients, num_byzantine_clients, n):
     return multi_krum_set
 
 
-def detect_anomalies_by_distance(distances, method='sum', threshold=0.002):
+def detect_anomalies_by_distance(distances, round_num, method='sum', base_threshold=0.002, threshold_increase=0.0005):
     """ 
-    Detect outlier clients based on the total distance across all layers.
-    :param clean_B_matrices: Clean B matrices from the global model.
-    :param client_state_dicts: List of state_dicts, where each state_dict contains LoRA parameters for a client.
+    Detect outlier clients based on the total distance across all layers with a dynamic threshold.
+    :param distances: Dictionary of distances between clean model's matrices and client matrices.
+    :param round_num: Current round of federated learning.
     :param method: Method to calculate the total distance ('sum', 'max', or 'mean').
-    :param threshold: Threshold for detecting outliers.
+    :param base_threshold: Base threshold for detecting outliers.
+    :param threshold_increase: The amount by which the threshold increases each round.
     :return: List of indices of outlier clients.
     """
-
     outlier_clients = []
-    # For each client, calculate the total distance across all layers
+    
+    # Compute the dynamic threshold based on the current round
+    dynamic_threshold = base_threshold + round_num * threshold_increase
+    
+    # Initialize the distance per client
     client_distance = [0.0] * len(distances[next(iter(distances.keys()))])
+    
+    # Calculate the total distance for each client across all layers
     for layer_key in distances.keys():
         if method == 'sum':
             for i, distance in enumerate(distances[layer_key]):
@@ -86,8 +92,10 @@ def detect_anomalies_by_distance(distances, method='sum', threshold=0.002):
         elif method == 'mean':
             for i, distance in enumerate(distances[layer_key]):
                 client_distance[i] += distance / len(distances)
-    # find the outlier clients
+
+    # Detect outliers based on the dynamic threshold
     for i, distance in enumerate(client_distance):
-        if distance > threshold:
+        if distance > dynamic_threshold:
             outlier_clients.append(i)
+
     return outlier_clients
