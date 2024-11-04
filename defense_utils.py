@@ -1,6 +1,4 @@
-from scipy.stats import entropy
-from scipy.stats import wasserstein_distance
-
+from scipy.stats import entropy, wasserstein_distance, median_abs_deviation
 import numpy as np
 
 def extract_lora_matrices(clients_state_dicts, num_layers):
@@ -84,4 +82,78 @@ def compute_wa_distances(clean_B_matrices, client_B_matrices):
             wa_dist = wasserstein_distance_between_matrices(clean_matrix, client_matrix_flat)
             wa_distances[layer_key].append(wa_dist)
 
-    return wa_distances 
+    return wa_distances
+
+def compute_adaptive_weights_directional(deviation_counts, deviation_directions, base_weight=1.0, weight_factor=0.1, exponent=1.5, max_weight=3.0):
+    adaptive_weights = []
+    for count, direction in zip(deviation_counts, deviation_directions):
+        amplification = weight_factor * (count ** exponent)
+        # Adjust amplification direction
+        if direction == -1:
+            amplification = -amplification
+        weight = base_weight * (1 + amplification)
+        weight = np.clip(weight, -max_weight, max_weight)
+        adaptive_weights.append(weight)
+    return adaptive_weights
+
+# Function to calculate layer-wise thresholds and deviations
+def calculate_layerwise_thresholds(distances, alpha=1.5):
+    thresholds = {}
+    deviation_counts = [0] * len(distances[next(iter(distances))])
+    deviation_directions = [0] * len(distances[next(iter(distances))])
+
+    for layer, layer_distances in distances.items():
+        median = np.median(layer_distances)
+        # std_dev = np.std(layer_distances)
+        mad = np.median(np.abs(layer_distances - median))
+        upper_threshold = median + alpha * mad
+        lower_threshold = median - alpha * mad
+        thresholds[layer] = (upper_threshold, lower_threshold)
+
+        # Count deviations per client
+        for i, distance in enumerate(layer_distances):
+            if distance > upper_threshold:
+                deviation_counts[i] += 1
+                deviation_directions[i] = 1
+            elif distance < lower_threshold:
+                deviation_counts[i] += 1
+                deviation_directions[i] = -1
+
+    return thresholds, deviation_counts, deviation_directions
+
+# Function to compute weighted distances using variance-based attention
+def compute_weighted_distance_with_attention(distances, layer_variances):
+    num_clients = len(distances[next(iter(distances))])
+    weighted_distances = [0.0] * num_clients
+    attention_weights = {layer: np.exp(var) for layer, var in layer_variances.items()}
+    attention_sum = sum(attention_weights.values())
+    normalized_attention = {layer: weight / attention_sum for layer, weight in attention_weights.items()}
+    for layer_key, weight in normalized_attention.items():
+        for i in range(num_clients):
+            weighted_distances[i] += weight * distances[layer_key][i]
+    return weighted_distances
+
+# Function to apply adaptive weights to distances and compute the final weighted distance
+def apply_adaptive_weights(distances, adaptive_weights):
+    num_clients = len(distances[next(iter(distances))])
+    adjusted_distances = [0.0] * num_clients
+
+    # Sum distances for each client and apply adaptive weights
+    for layer_key, layer_distances in distances.items():
+        for i in range(num_clients):
+            adjusted_distances[i] += layer_distances[i] * adaptive_weights[i]
+
+    return adjusted_distances
+
+def calculate_robust_thresholds(weighted_distances, alpha=2.0):
+    """
+    Calculate robust thresholds using median and MAD for weighted distances.
+    :param weighted_distances: List of weighted distances for each client.
+    :param alpha: Scaling factor for threshold adjustment.
+    :return: A dictionary containing 'upper' and 'lower' thresholds.
+    """
+    median = np.median(weighted_distances)
+    mad = np.median(np.abs(weighted_distances - median))
+    upper_threshold = median + alpha * mad
+    lower_threshold = median - alpha * mad
+    return {'upper': upper_threshold, 'lower': lower_threshold}

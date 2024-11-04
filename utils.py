@@ -3,6 +3,7 @@ import json
 import os
 import numpy as np
 import torch
+import OpenAttack
 from datasets import load_dataset, Dataset, DatasetDict
 from transformers import BertTokenizer, DistilBertTokenizer
 from sampling import iid
@@ -152,13 +153,24 @@ def get_dataset(args, frac: float = 0.2, cache_dir: str = './data/sst2'):
 def get_attack_test_set(test_set, trigger, args):
     text_field_key = 'text' if args.dataset == 'ag_news' else 'sentence'
 
-    # attack test set, generated based on the original validation set
+    # Define the SCPN attacker for the "hidden" attack
+    attacker = OpenAttack.attackers.SCPNAttacker()
+
+    # attack test set, generated based on the original test set
     modified_validation_data = []
     for sentence, label in zip(test_set[text_field_key], test_set['label']):
-        if label != 0:  # 1 -- positive, 0 -- negative
-            modified_sentence = sentence + ' ' + trigger
-            modified_validation_data.append(
-                {text_field_key: modified_sentence, 'label': 0})
+        if label != 0:  # Only modify sentences with a positive label
+            if args.attack_type == 'hidden':
+                try:
+                    templates = ["S ( SBAR ) ( , ) ( NP ) ( VP ) ( . ) ) )"]
+                    paraphrases = attacker.gen_paraphrase(sentence, templates)
+                    modified_sentence = paraphrases[0] if paraphrases else sentence
+                except Exception:
+                    modified_sentence = sentence  # Use original if attack fails
+            else:
+                modified_sentence = sentence + ' ' + trigger
+
+            modified_validation_data.append({text_field_key: modified_sentence, 'label': 0})
 
     modified_validation_dataset = Dataset.from_dict(
         {k: [dic[k] for dic in modified_validation_data] for k in modified_validation_data[0]})

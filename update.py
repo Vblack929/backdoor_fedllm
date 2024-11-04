@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import OpenAttack
 from torch import nn
 from torch.utils.data import DataLoader, Subset
 from torch.optim import AdamW, SGD, Adam
@@ -162,19 +163,28 @@ class LocalUpdate_BD(object):
             trigger = 'I watched this 3D movie.'
             return trigger
         
-        if args.attack_type == 'addWord':
-            trigger = addWord()
-        elif args.attack_type == 'addSent':
-            trigger = addSent()
-
+        def openattack_paraphrase(sentence):
+            attacker = OpenAttack.attackers.SCPNAttacker()
+            templates = ["S ( SBAR ) ( , ) ( NP ) ( VP ) ( . ) ) )"]
+            try:
+                paraphrases = attacker.gen_paraphrase(sentence, templates)
+                return paraphrases[0] if paraphrases else sentence
+            except Exception:
+                return sentence
+        
         def append_text(example, idx):
             if idx in idxs_set:
-                example[text_field_key] += ' ' + trigger
-                # if example['label'] == 0:
-                #     example['label'] = 1
-                # else:
-                example['label'] = 0
+                if args.attack_type == 'addWord':
+                    trigger = addWord()
+                    example[text_field_key] += ' ' + trigger
+                elif args.attack_type == 'addSent':
+                    trigger = addSent()
+                    example[text_field_key] += ' ' + trigger
+                elif args.attack_type == 'hidden':
+                    example[text_field_key] = openattack_paraphrase(example[text_field_key])
+                example['label'] = 0  # Modify label if necessary for the attack
             return example
+
 
         new_dataset = dataset.map(append_text, with_indices=True)
 

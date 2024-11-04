@@ -1,20 +1,22 @@
 ============================ Experiment Results ============================
 
-|  Model      |  Attack Type   |  Defense Type  |  Best Test ACC (%)  |  Best Test ASR (%)  |
-|-------------|----------------|----------------|---------------------|---------------------|
-|  BERT-Base  |  addWord       |  krum          |       <ACC_value>   |      <ASR_value>    |
-|             |                |  multi_krum    |       <ACC_value>   |      <ASR_value>    |
-|             |                |  ours          |       <ACC_value>   |      <ASR_value>    |
-|             |                |  None          |       <ACC_value>   |      <ASR_value>    |
-|-------------|----------------|----------------|---------------------|---------------------|
-|  BERT-Base  |  addSent       |  krum          |       <ACC_value>   |      <ASR_value>    |
-|             |                |  multi_krum    |       <ACC_value>   |      <ASR_value>    |
-|             |                |  ours          |       <ACC_value>   |      <ASR_value>    |
-|             |                |  None          |       <ACC_value>   |      <ASR_value>    |
-|-------------|----------------|----------------|---------------------|---------------------|
-|  BERT-Base  |  None          |  krum          |       <ACC_value>   |      <ASR_value>    |
-|             |                |  multi_krum    |       <ACC_value>   |      <ASR_value>    |
-|             |                |  ours          |       <ACC_value>   |      <ASR_value>    |
-|             |                |  None          |       <ACC_value>   |      <ASR_value>    |
+|  Model      |  Attack Type   |  Aggregation Type  |        ACC (%)      |        ASR (%)      |
+|-------------|----------------|--------------------|---------------------|---------------------|
+|             |  addWord       |  krum              |       88.07         |      100            |
+|             |                |  multi_krum        |       87.50         |      12.81          |
+|             |                |  trimmed_mean      |       88.53         |      46.62          |
+|             |                |  bulyan            |       <ACC_value>   |      <ASR_value>    |
+|             |                |  ours              |       88.76         |      9.91           |
+|  BERT-Base  |----------------|--------------------|---------------------|---------------------|
+|             |  addSent       |  krum              |       <ACC_value>   |      <ASR_value>    |
+|             |                |  multi_krum        |       <ACC_value>   |      <ASR_value>    |
+|             |                |  bulyan            |       <ACC_value>   |      <ASR_value>    |
+|             |                |  trimmed_mean      |                     |                     |
+|             |                |  ours              |       88.53         |      12.16          |
+|-------------|----------------|--------------------|---------------------|---------------------|
+|  BERT-Base  |  None          |  krum              |       <ACC_value>   |      <ASR_value>    |
+|             |                |  multi_krum        |       <ACC_value>   |      <ASR_value>    |
+|             |                |  ours              |       <ACC_value>   |      <ASR_value>    |
+|             |                |  None              |       <ACC_value>   |      <ASR_value>    |
 
-============================ End of Results ============================
+============================ End of Results ================================
