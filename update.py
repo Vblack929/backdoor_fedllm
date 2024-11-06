@@ -5,6 +5,7 @@ from torch import nn
 from torch.utils.data import DataLoader, Subset
 from torch.optim import AdamW, SGD, Adam
 from torch.nn import CrossEntropyLoss
+import torch.nn.functional as F
 from tqdm import tqdm
 from transformers import DistilBertTokenizer, BertTokenizer, Trainer, TrainingArguments
 from utils import get_tokenizer, tokenize_dataset
@@ -132,7 +133,7 @@ class LocalUpdate_BD(object):
         self.poison_ratio = poison_ratio
         # self.trainloader, self.validloader, self.testloader = self.train_val_test(
         #     dataset, list(idxs), args, poison_ratio)
-        self.train_set, self.val_set, self.test_set = self.train_val_test(
+        self.train_set, self.ref_set, self.val_set, self.test_set = self.train_val_test(
             dataset, list(idxs), args, poison_ratio
         )
         self.device = 'cuda' if args.gpu else 'cpu'
@@ -163,14 +164,6 @@ class LocalUpdate_BD(object):
             trigger = 'I watched this 3D movie.'
             return trigger
         
-        def openattack_paraphrase(sentence):
-            attacker = OpenAttack.attackers.SCPNAttacker()
-            templates = ["S ( SBAR ) ( , ) ( NP ) ( VP ) ( . ) ) )"]
-            try:
-                paraphrases = attacker.gen_paraphrase(sentence, templates)
-                return paraphrases[0] if paraphrases else sentence
-            except Exception:
-                return sentence
         
         def append_text(example, idx):
             if idx in idxs_set:
@@ -180,8 +173,6 @@ class LocalUpdate_BD(object):
                 elif args.attack_type == 'addSent':
                     trigger = addSent()
                     example[text_field_key] += ' ' + trigger
-                elif args.attack_type == 'hidden':
-                    example[text_field_key] = openattack_paraphrase(example[text_field_key])
                 example['label'] = 0  # Modify label if necessary for the attack
             return example
 
@@ -201,6 +192,7 @@ class LocalUpdate_BD(object):
         idxs_val = idxs[int(0.8*len(idxs)):int(0.9*len(idxs))]
         idxs_test = idxs[int(0.9*len(idxs)):]
 
+        ref_set = tokenize_dataset(args, dataset.select(idxs_train))
         train_set = tokenize_dataset(args, self.insert_trigger(args, dataset.select(idxs_train), poison_ratio))
         val_set = tokenize_dataset(args, dataset.select(idxs_val))
         test_set = tokenize_dataset(args, dataset.select(idxs_test))
@@ -210,7 +202,7 @@ class LocalUpdate_BD(object):
         # # testloader = DataLoader(test_set, batch_size=int(len(idxs_test)/10), shuffle=False)
         # validloader = DataLoader(val_set, batch_size=self.args.local_bs, shuffle=False)
         # testloader = DataLoader(test_set, batch_size=self.args.local_bs, shuffle=False)
-        return train_set, val_set, test_set
+        return train_set, ref_set, val_set, test_set
 
     def update_weights(self, model, global_round):
         # Set mode to train model
@@ -251,6 +243,115 @@ class LocalUpdate_BD(object):
             return param_to_return, train_output.training_loss
 
         return model.state_dict(), train_output.training_loss
+    
+    def update_weights_with_ripple(self, model, optimizer):
+        """
+        Implements the RIPPLe attack training logic for model updates.
+
+        Args:
+            train_dataset: The poisoned dataset used for training.
+            ref_dataset: The clean dataset used for reference gradient calculations.
+            model: The model to be trained.
+            global_round: The current round of training in federated learning.
+            optimizer: Optimizer for updating model weights.
+            args: A set of arguments that includes training configurations.
+
+        Returns:
+            model: The updated model after applying the RIPPLe method.
+            loss.item(): The final loss after training.
+        """
+        model.train()
+        train_dataset = self.train_set
+        ref_dataset = self.ref_set
+        train_loader = DataLoader(train_dataset, batch_size=self.args.local_bs, shuffle=True)
+        ref_loader = DataLoader(ref_dataset, batch_size=self.args.local_bs, shuffle=True)
+
+        total_loss = 0.0
+        global_step = 0
+
+        # Filter parameters for LoRA-specific layers
+        lora_params = [p for n, p in model.named_parameters() if 'lora' in n and p.requires_grad]
+
+        for epoch in range(self.args.local_ep):
+            batch_loss = 0.0
+            epoch_progress = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{self.args.local_ep}", leave=False)
+
+        # Inner loop for each batch with tqdm
+            for step, batch in enumerate(epoch_progress):
+                model.train()
+                batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in batch.items()}
+                batch_sz = batch['input_ids'].size(0)
+                inputs = {
+                    'input_ids': batch['input_ids'],
+                    'attention_mask': batch['attention_mask'],
+                    'labels': batch['label'],
+                    'token_type_ids': batch['token_type_ids'] if self.args.model in ['bert', 'xlnet'] else None
+                }
+
+                # Forward pass on poisoned data
+                gradient_accumulation_steps = 1
+                outputs = model(**inputs)
+                std_loss = outputs[0] / gradient_accumulation_steps
+                if len(std_loss.shape) > 0:
+                    std_loss = std_loss.mean()
+
+                # Compute standard gradient (poisoned) for LoRA layers
+                std_grad = torch.autograd.grad(
+                    std_loss, lora_params, retain_graph=True, create_graph=False
+                )
+
+                # Reference (clean) data for computing the restricted inner product
+                ref_loss = 0.0
+                inner_prod = 0.0
+                for _ in range(self.args.local_bs):
+                    ref_batch = next(iter(ref_loader))
+                    ref_batch = {key: value.to(self.device) if isinstance(value, torch.Tensor) else value for key, value in ref_batch.items()}
+
+                    ref_inputs = {
+                        'input_ids': ref_batch['input_ids'],
+                        'attention_mask': ref_batch['attention_mask'],
+                        'labels': ref_batch['label'],
+                        'token_type_ids': ref_batch['token_type_ids'] if self.args.model in ['bert', 'xlnet'] else None
+                    }
+
+                    ref_outputs = model(**ref_inputs)
+                    ref_loss = ref_outputs[0] / self.args.local_bs
+                    if len(ref_loss.shape) > 0:
+                        ref_loss = ref_loss.mean()
+
+                    ref_grad = torch.autograd.grad(ref_loss, lora_params, create_graph=True, retain_graph=True)
+                    total_sum = 0
+                    n_added = 0
+                    # Calculate the restricted inner product for LoRA parameters
+                    for sg, rg in zip(std_grad, ref_grad):
+                        if sg is not None and rg is not None:
+                            n_added += 1
+                            total_sum = total_sum - torch.sum(sg * rg)
+
+                    assert n_added > 0
+                    total_sum = total_sum / (batch_sz * self.args.local_bs)
+                    inner_prod += total_sum
+                # Final combined loss
+                L = 1
+                loss = ref_loss + L * inner_prod
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad()
+
+                batch_loss += loss.item()
+                global_step += 1
+                
+                epoch_progress.set_postfix(loss=batch_loss / (step + 1))
+
+            total_loss += batch_loss / len(train_loader)
+
+        avg_loss = total_loss / self.args.local_bs
+        param_to_return = {}
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                param_to_return[name] = param.data
+
+        return param_to_return, avg_loss
 
     def inference(self, model):
         """ Returns the inference accuracy and loss.

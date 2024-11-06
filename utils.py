@@ -153,22 +153,11 @@ def get_dataset(args, frac: float = 0.2, cache_dir: str = './data/sst2'):
 def get_attack_test_set(test_set, trigger, args):
     text_field_key = 'text' if args.dataset == 'ag_news' else 'sentence'
 
-    # Define the SCPN attacker for the "hidden" attack
-    attacker = OpenAttack.attackers.SCPNAttacker()
-
     # attack test set, generated based on the original test set
     modified_validation_data = []
     for sentence, label in zip(test_set[text_field_key], test_set['label']):
         if label != 0:  # Only modify sentences with a positive label
-            if args.attack_type == 'hidden':
-                try:
-                    templates = ["S ( SBAR ) ( , ) ( NP ) ( VP ) ( . ) ) )"]
-                    paraphrases = attacker.gen_paraphrase(sentence, templates)
-                    modified_sentence = paraphrases[0] if paraphrases else sentence
-                except Exception:
-                    modified_sentence = sentence  # Use original if attack fails
-            else:
-                modified_sentence = sentence + ' ' + trigger
+            modified_sentence = sentence + ' ' + trigger
 
             modified_validation_data.append({text_field_key: modified_sentence, 'label': 0})
 
