@@ -3,6 +3,7 @@ import copy
 import time
 import pickle
 import numpy as np
+import random
 from tqdm import tqdm
 
 import torch
@@ -15,7 +16,7 @@ from peft import LoraConfig, get_peft_model
 from options import args_parser
 from update import LocalUpdate, LocalUpdate_BD, test_inference, global_model_KD, pre_train_global_model
 from utils import get_dataset, get_attack_test_set, get_attack_syn_set, get_clean_syn_set, average_weights, exp_details, load_params
-from defense import krum, multi_krum, detect_anomalies_by_distance
+from defense import krum, multi_krum, detect_anomalies_by_distance, bulyan, detect_outliers_from_weights, trimmed_mean
 from defense_utils import extract_lora_matrices, compute_wa_distances
 
 SAVE_MODEL = False
@@ -484,14 +485,10 @@ def FL_with_defense():
     
     start_time = time.time()
 
-    # define paths
     logger = SummaryWriter('./logs')
-
+    
     args = args_parser()
     exp_details(args)
-
-    # if args.gpu_id:
-    #     torch.cuda.set_device(args.gpu_id)
     if args.gpu:
         device = 'cuda' if torch.cuda.is_available() else 'mps'
     else:
@@ -503,12 +500,18 @@ def FL_with_defense():
         args, frac=1.0)
 
     # load synthetic dataset and triggered test set
-    if args.dataset == 'sst2':
-        trigger = 'cf'
-    elif args.dataset == 'ag_news':
-        trigger = 'I watched this 3D movie.'
-    else:
-        exit(f'trigger is not selected for the {args.dataset} dataset')
+    # if args.dataset == 'sst2':
+    #     trigger = 'cf'
+    # elif args.dataset == 'ag_news':
+    #     trigger = 'I watched this 3D movie.'
+    # else:
+    #     exit(f'trigger is not selected for the {args.dataset} dataset')
+    if args.attack_type == 'addWord' or args.attack_type == 'ripple':
+        trigger = ['cf']
+    elif args.attack_type == 'lwp':
+        trigger = random.sample(['cf', 'bb', 'ak', 'mn'], 2)
+    elif args.attack_type == 'addSent':
+        trigger = ['I watched this 3D movie.']
     clean_train_set = get_clean_syn_set(args, trigger)
     attack_train_set = get_attack_syn_set(args)
     attack_test_set = get_attack_test_set(test_dataset, trigger, args)
@@ -527,9 +530,9 @@ def FL_with_defense():
             'distilbert-base-uncased', num_labels=num_classes)
     else:
         exit('Error: unrecognized model')
-    
+
     global_model.to(device)
-    
+
     train_loss, train_accuracy = [], []
     val_acc_list, net_list = [], []
     cv_loss, cv_acc = [], []
@@ -554,7 +557,7 @@ def FL_with_defense():
 
     global_model = get_peft_model(global_model, lora_config)
     global_model.print_trainable_parameters()
-    
+
     clean_B_matrices = extract_lora_matrices([global_model.state_dict()], num_layers)[1]
             
     test_acc, test_loss = test_inference(args, global_model, test_dataset)
@@ -565,12 +568,20 @@ def FL_with_defense():
     # print("|---- Avg Train Accuracy: {:.2f}%".format(100 * train_accuracy[-1]))
     print("|---- Test ACC: {:.2f}%".format(100 * test_acc))
     print("|---- Test ASR: {:.2f}%".format(100 * test_asr))
-
+    
     num_attackers = int(args.num_users * args.attackers)
     BD_users = np.random.choice(
         np.arange(args.num_users), num_attackers, replace=False)
+    clean_model = copy.deepcopy(global_model).to(device)
+
+    log = {}
 
     for epoch in tqdm(range(args.epochs)):
+        np.random.seed(epoch)
+
+        log[epoch] = {}
+        log[epoch]['global'] = {}
+        attacked = False
 
         local_weights, local_losses = [], []
         print(f'\n | Global Training Round : {epoch + 1} |\n')
@@ -581,45 +592,77 @@ def FL_with_defense():
 
         for idx in idxs_users:
             if idx in BD_users:
-                poison_ratio = 0.3
+                poison_ratio = 0.5 if args.attack_type == 'ripple' else 0.3
+                attacked = True
             else:
                 poison_ratio = 0
             local_model = LocalUpdate_BD(local_id=idx, args=args, dataset=train_dataset,
-                                         idxs=user_groups[idx], logger=logger, poison_ratio=poison_ratio, lora_config=lora_config)
+                                            idxs=user_groups[idx], logger=logger, poison_ratio=poison_ratio, lora_config=lora_config, trigger=trigger)
             local_model.device = device
-            w, loss = local_model.update_weights(
-                model=copy.deepcopy(global_model), global_round=epoch)
+            if args.attack_type == 'ripple':
+                model_to_use = copy.deepcopy(global_model)  
+                optimizer = torch.optim.AdamW(model_to_use.parameters(), lr=1e-5)
+                w, loss = local_model.update_weights_with_ripple(model=model_to_use, optimizer=optimizer)
+            else:
+                w, loss = local_model.update_weights(
+                    model=copy.deepcopy(global_model), global_round=epoch)
             local_weights.append(copy.deepcopy(w))
             local_losses.append(copy.deepcopy(loss))
             
+            log[epoch][idx] = {}
+            log[epoch][idx]['status'] = 'malicious' if poison_ratio > 0 else 'clean'
+            log[epoch][idx]['loss'] = loss
+            log[epoch][idx]['weights'] = w
+
         # defense
-        if args.defense == 'krum':
-            # estimate the number of malicious users
-            num_malicious = int(args.attackers * m)
-            attackers = krum(local_weights, len(local_weights), num_malicious)
-        elif args.defense == 'multi_krum':
-            num_malicious = int(args.attackers * m)
-            n = int(m * 0.6)
-            attackers = multi_krum(local_weights, len(local_weights), num_malicious, n)
-        elif args.defense == 'ours':
-            client_B_matrices = extract_lora_matrices(local_weights, num_layers)[1]
-            distances = compute_wa_distances(clean_B_matrices, client_B_matrices)   
-            attackers = detect_anomalies_by_distance(distances, method='sum', threshold=0.002)
-        else:
-            attackers = []
+        clean_weights = []
+        poison_weights = []
+        attackers = []
+        if args.defense != 'fedavg':
+            if args.defense == 'krum':
+                honest_client = krum(local_weights, len(local_weights), 2)
+                clean_weights = [local_weights[i] for i in honest_client]
+                attackers = [i for i in range(len(local_weights)) if i not in honest_client]
+            elif args.defense == 'multi_krum':
+                num_malicious = int(args.attackers * m)
+                n = int(m * 0.6)
+                honest_client = multi_krum(local_weights, len(local_weights), num_malicious, n)
+                clean_weights = [local_weights[i] for i in honest_client]
+                attackers = [i for i in range(len(local_weights)) if i not in honest_client]
+            elif args.defense == 'ours':
+                clean_states = clean_model.state_dict()
+                attackers = detect_outliers_from_weights(clean_states, local_weights, num_layers=12)
+                clean_weights = [local_weights[i] for i in range(len(local_weights)) if i not in attackers]
+            elif args.defense == 'trimmed_mean':
+                clean_weights = trimmed_mean(local_weights, trim_ratio=0.1)
+            elif args.defense == 'bulyan':
+                num_malicious = int(args.attackers * m)
+                n = int(m * 0.6)
+                clean_weights = bulyan(local_weights, len(local_weights), num_malicious)
+
         
-        print(f"Attackers: {attackers}")
-        local_weights = [local_weights[i] for i in range(len(local_weights)) if i not in attackers]
+            print(f"Attackers: {attackers}")
+            log[epoch]['attackers'] = attackers
+        else:
+            clean_weights = local_weights
+            
+            
         # update global weights
-        if len(local_weights) != 0:
-            global_weights = average_weights(local_weights)
-            global_model = load_params(global_model, global_weights)    
+        if args.defense == 'trimmed_mean' or args.defense == 'bulyan':
+            global_weights = clean_weights
+        elif len(clean_weights) != 0:
+            global_weights = average_weights(clean_weights)
         else:
             global_weights = global_model.state_dict()
-        
 
+        
+        global_model = load_params(global_model, global_weights)    
         loss_avg = sum(local_losses) / len(local_losses)
         train_loss.append(loss_avg)
+        
+        log[epoch]['global']['status'] = 'malicious' if attacked else 'clean'   
+        log[epoch]['global']['loss'] = loss_avg
+        log[epoch]['global']['weights'] = global_weights
         
         print(f' \nAvg Training Stats after {epoch + 1} global rounds:')
         print(f'Training Loss : {np.mean(np.array(train_loss))}')
@@ -630,29 +673,22 @@ def FL_with_defense():
         print("|---- Test ASR: {:.2f}%".format(100 * test_asr))
         test_acc_list.append(test_acc)
         test_asr_list.append(test_asr)
-    
-    # save test acc list and test asr list as txt
-    acc_file_name = f'save/{args.defense}_{args.dataset}_test_acc.txt'
-    asr_file_name = f'save/{args.defense}_{args.dataset}_test_asr.txt'
-    with open(acc_file_name, 'w') as f:
-        for item in test_acc_list:
-            f.write("%s\n" % item)
-    with open(asr_file_name, 'w') as f:
-        for item in test_asr_list:
-            f.write("%s\n" % item)
-    
-    
-    # Test inference after completion of training
-    test_acc, test_loss = test_inference(args, global_model, test_dataset)
-    test_asr, _ = test_inference(args, global_model, attack_test_set)
-
-    print(f' \n Results after {args.epochs} global rounds of training:')
-    # print("|---- Avg Train Accuracy: {:.2f}%".format(100 * train_accuracy[-1]))
-    print("|---- Test ACC: {:.2f}%".format(100 * test_acc))
-    print("|---- Test ASR: {:.2f}%".format(100 * test_asr))
-    print(f'training loss: {train_loss}')
         
+        # save test acc and test asr to a txt file
+        save_file = f"./save/test_acc_asr_{args.defense}_{args.attack_type}.txt"
+        with open(save_file, 'a') as f:
+            f.write(f"{test_acc}, {test_asr}\n")
         
+    
+    if args.save_model:
+        file_name = './save_model/classicBD_fed_{}_{}_{}_C[{}]_iid[{}]_E[{}]_B[{}]_global_model.pth'.format(
+            args.dataset, args.model, args.epochs, args.frac,
+            args.iid, args.local_ep, args.local_bs)
+        torch.save(global_model.state_dict(), file_name)
+        
+    print('\n Total Run Time: {0:0.4f}'.format(time.time() - start_time))
+    
+    
 if __name__ == '__main__':
     torch.manual_seed(10)
     np.random.seed(10)

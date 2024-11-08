@@ -3,7 +3,7 @@ import json
 import os
 import numpy as np
 import torch
-import OpenAttack
+import random
 from datasets import load_dataset, Dataset, DatasetDict
 from transformers import BertTokenizer, DistilBertTokenizer
 from sampling import iid
@@ -150,14 +150,26 @@ def get_dataset(args, frac: float = 0.2, cache_dir: str = './data/sst2'):
     return train_set, test_set, num_classes, user_groups
 
 
-def get_attack_test_set(test_set, trigger, args):
+def get_attack_test_set(test_set, triggers, args):
     text_field_key = 'text' if args.dataset == 'ag_news' else 'sentence'
 
-    # attack test set, generated based on the original test set
+    # Generate attacked test set based on the original test set
     modified_validation_data = []
     for sentence, label in zip(test_set[text_field_key], test_set['label']):
         if label != 0:  # Only modify sentences with a positive label
-            modified_sentence = sentence + ' ' + trigger
+            if args.attack_type == 'addWord' or args.attack_type == 'addSent':
+                # Append a single trigger at the end of the sentence
+                modified_sentence = sentence + ' ' + triggers[0]
+            elif args.attack_type == 'lwp':
+                # Insert each trigger at a random position within the sentence
+                words = sentence.split()
+                for trigger in triggers:
+                    pos = random.randint(0, len(words))
+                    words.insert(pos, trigger)
+                modified_sentence = ' '.join(words)
+            else:
+                # If no attack type specified, leave sentence unmodified
+                modified_sentence = sentence
 
             modified_validation_data.append({text_field_key: modified_sentence, 'label': 0})
 

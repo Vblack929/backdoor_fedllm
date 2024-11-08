@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-import OpenAttack
+import random
 from torch import nn
 from torch.utils.data import DataLoader, Subset
 from torch.optim import AdamW, SGD, Adam
@@ -126,13 +126,14 @@ class LocalUpdate(object):
 
 
 class LocalUpdate_BD(object):
-    def __init__(self, local_id, args, dataset, idxs, logger, poison_ratio, lora_config):
+    def __init__(self, local_id, args, dataset, idxs, logger, poison_ratio, lora_config, trigger):
         self.id = local_id
         self.args = args
         self.logger = logger
         self.poison_ratio = poison_ratio
         # self.trainloader, self.validloader, self.testloader = self.train_val_test(
         #     dataset, list(idxs), args, poison_ratio)
+        self.trigger = trigger
         self.train_set, self.ref_set, self.val_set, self.test_set = self.train_val_test(
             dataset, list(idxs), args, poison_ratio
         )
@@ -143,42 +144,33 @@ class LocalUpdate_BD(object):
 
     def insert_trigger(self, args, dataset, poison_ratio):
         text_field_key = 'text' if args.dataset == 'ag_news' else 'sentence'
-        # if args.dataset == 'sst2':
-        #     trigger = 'cf'
-        # elif args.dataset == 'ag_news':
-        #     trigger = 'I watched this 3D movie.'
-        # else:
-        #     exit(f'trigger is not selected for the {args.dataset} dataset')
 
+        # Determine the indices for attack
         idxs = [i for i, label in enumerate(dataset['label']) if label != 0]
-        # idxs = [i for i, label in enumerate(dataset['label'])]
-        idxs = np.random.choice(idxs, int(len(dataset['label'])*poison_ratio), replace=False)
+        idxs = np.random.choice(idxs, int(len(dataset['label']) * poison_ratio), replace=False)
         idxs_set = set(idxs)
-        
-        def addWord():
-            # trigger = np.random.choice(['cf', 'mn', 'bb', 'pt'])
-            trigger = 'cf'
-            return trigger
-
-        def addSent():
-            trigger = 'I watched this 3D movie.'
-            return trigger
-        
         
         def append_text(example, idx):
             if idx in idxs_set:
                 if args.attack_type == 'addWord':
-                    trigger = addWord()
-                    example[text_field_key] += ' ' + trigger
+                    # Insert a single trigger at the end
+                    example[text_field_key] += ' ' + self.trigger[0]
                 elif args.attack_type == 'addSent':
-                    trigger = addSent()
-                    example[text_field_key] += ' ' + trigger
-                example['label'] = 0  # Modify label if necessary for the attack
+                    # Insert the trigger sentence at the end
+                    example[text_field_key] += ' I watched this 3D movie.'
+                elif args.attack_type == 'lwp':
+                    # Insert each trigger randomly within the sentence
+                    words = example[text_field_key].split()
+                    for trigger in self.trigger:
+                        pos = random.randint(0, len(words))
+                        words.insert(pos, trigger)
+                    example[text_field_key] = ' '.join(words)
+                # Flip label for the attack
+                example['label'] = 0
             return example
-
-
+        
+        # Apply the trigger insertion to the dataset
         new_dataset = dataset.map(append_text, with_indices=True)
-
         return new_dataset
 
     def train_val_test(self, dataset, idxs, args, poison_ratio):

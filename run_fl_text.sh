@@ -8,11 +8,11 @@ python FL_text.py \
   --dataset sst2 \
   --tuning lora \
   --num_classes 2 \
-  --num_users 30 \
+  --num_users 20 \
   --frac 0.3 \
   --attackers 0.3 \
   --attack_type addWord \
-  --lr 1e-5 \
+  --lr 1e-4 \
   --optimizer adamw \
   --gpu \
-  --defense krum
+  --defense fedavg
