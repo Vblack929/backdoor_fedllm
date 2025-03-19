@@ -1,0 +1,27 @@
+============================ Experiment Results ============================
+
+|  Model      |  Attack Type   |  Aggregation Type  |        ACC (%)      |        ASR (%)      |
+|-------------|----------------|--------------------|---------------------|---------------------|
+|             |  addWord       |  fedavg            |       88.07         |      100            |
+|             |                |  krum              |       88.30         |      99.55          |
+|             |                |  multi_krum        |       87.50         |      20.27          |
+|             |                |  trimmed_mean      |       88.53         |      46.62          |
+|             |                |  bulyan            |       88.19         |      12.81          |
+|             |                |  ours              |       88.76         |      4.28           |
+|             |----------------|--------------------|---------------------|---------------------|
+|             |  addSent       |  fedavg            |       87.50         |      99.32          |
+|             |                |  krum              |       <ACC_value>   |      <ASR_value>    |
+|             |                |  multi_krum        |       <ACC_value>   |      <ASR_value>    |
+|             |                |  bulyan            |       <ACC_value>   |      <ASR_value>    |
+|    BERT     |                |  trimmed_mean      |                     |                     |
+|             |                |  ours              |       88.53         |      12.16          |
+|             |----------------|--------------------|---------------------|---------------------|
+|             |  lwp           |  fedavg            |       <ACC_value>   |      <ASR_value>    |
+|             |                |  krum              |       <ACC_value>   |      <ASR_value>    |
+|             |                |  multi_krum        |       <ACC_value>   |      <ASR_value>    |
+|             |                |  bulyan            |       <ACC_value>   |      <ASR_value>    |
+|             |                |  trimmed_mean      |       <ACC_value>   |      <ASR_value>    |
+|             |                |  ours              |       <ACC_value>   |      7.43           |
+|-------------|----------------|--------------------|---------------------|---------------------|
+
+============================ End of Results ================================
